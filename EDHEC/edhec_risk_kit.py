@@ -266,7 +266,7 @@ def optimal_weights(n_points, er, cov):
 
 def plot_ef(n_points, er, cov, linestyle = ".-"):
     """
-    Plots theN- asset efficient frontier
+    Plots the N-asset efficient frontier
     """
 
     weights = optimal_weights(n_points, er, cov)
