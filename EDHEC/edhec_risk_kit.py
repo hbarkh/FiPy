@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import scipy.stats as ss
+from scipy.optimize import minimize
 
 
 def drawdown(return_series: pd.Series):
@@ -56,6 +57,18 @@ def get_hfi_returns():
     hfi /= 100
 
     return hfi
+
+def get_ind_returns():
+    """
+    Load Ind 30 Returns
+    """
+    
+    ind = pd.read_csv("data/ind30_m_vw_rets.csv",header=0,index_col=0,parse_dates=True)/100
+    ind.index = pd.to_datetime(ind.index, format = "%Y%M").to_period("M")
+    ind.columns = ind.columns.str.strip()
+    
+    return ind
+
 
 def semideviation(r):
     """
@@ -143,3 +156,126 @@ def cvar_historic(r, level = 5):
         return r.aggregate(cvar_historic, level=level)
     else:
         raise TypeError("Expected r to be a Series or DataFrame")
+        
+        
+def annualize_rets(r, periods_per_year):
+    """
+    Annualizes a set of returns
+    """
+    annual_rets = ((1+r).prod())**(periods_per_year/len(r)) - 1
+
+    return annual_rets
+
+
+def annualize_vol(r, periods_per_year):
+    """
+    Annualizes the volatility of a set of returns
+    """
+    
+    return r.std()*periods_per_year**0.5
+
+
+def sharpe_ratio(r, riskfree_rate, periods_per_year):
+    """
+    Annualized sharpe ratio for a set of returns
+    """
+    rf_per_period = (1 + riskfree_rate)**(1/periods_per_year) - 1
+    excess_ret = r - rf_per_period
+    ann_excess_return = annualize_rets(excess_ret, periods_per_year)
+    ann_vol = annualize_vol(r, periods_per_year)
+    
+    return ann_excess_return/ann_vol
+
+
+def portfolio_returns(weights,returns):
+    """
+    Weights -> Returns
+    """
+    return weights.T @returns
+
+
+def portfolio_vol(weights, covmat):
+    """
+    Weights -> Vol
+    """
+    return (weights.T @ covmat @ weights)**0.5
+
+
+def plot_ef2(n_points, er, cov, linestyle = ".-"):
+    """
+    Plots the 2-asset efficient frontier
+    """
+    if er.shape[0] != 2:
+        raise ValueError("Plot_ef2 can only plot 2-asset frontiers")
+
+    weights = [np.array([w, 1-w]) for w in np.linspace(0, 1, n_points)]
+
+    rets = [portfolio_returns(w, er) for w in weights]
+    vols = [portfolio_vol(w, cov) for w in weights]
+
+    # pack into df
+    ef = pd.DataFrame({"Returns": rets, "Volatility": vols})
+
+    # plot
+    return ef.plot.line(x="Volatility", y="Returns", style = linestyle)
+
+
+def minimize_vol(target_return, er, cov):
+    """
+    Target Return -> Weight Vector
+    """
+    n = len(er)
+
+    init_guess = np.repeat(1/n, n)
+
+    # constrain to no leverage, and no short positions
+    bounds = ((0, 1),)*n  # multiplying a tuple makes n copies of it
+
+    # constraint that weights need to equal 1
+    weights_sum_to_1 = {
+        'type': 'eq',
+        # check (sum of weights) - 1 equals 0
+        'fun': lambda weights: np.sum(weights) - 1
+    }
+
+    # constraint that return should equal our target return
+    return_is_target = {
+        'type': 'eq',
+        'args': (er,),
+        # check target return
+        'fun': lambda weights, er: target_return - portfolio_returns(weights, er)
+    }
+
+    results = minimize(portfolio_vol, init_guess,
+                       args=(cov,), method="SLSQP",
+                       constraints=(return_is_target, weights_sum_to_1),
+                       bounds=bounds)  # can pass arg: options = {'disp':False}
+    return results.x
+
+
+def optimal_weights(n_points, er, cov):
+    """
+    list of weights to run the optimizer on to minimze the vol
+    """
+    target_returns = np.linspace(er.min(),er.max(),n_points)
+    
+    weights = [minimize_vol(target_ret, er, cov) for target_ret in target_returns]
+    
+    return weights
+    
+
+def plot_ef(n_points, er, cov, linestyle = ".-"):
+    """
+    Plots theN- asset efficient frontier
+    """
+
+    weights = optimal_weights(n_points, er, cov)
+
+    rets = [portfolio_returns(w, er) for w in weights]
+    vols = [portfolio_vol(w, cov) for w in weights]
+
+    # pack into df
+    ef = pd.DataFrame({"Returns": rets, "Volatility": vols})
+
+    # plot
+    return ef.plot.line(x="Volatility", y="Returns", style = linestyle)
