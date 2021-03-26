@@ -52,7 +52,7 @@ def get_hfi_returns():
     
     
     hfi = pd.read_csv("data/edhec-hedgefundindices.csv",header=0,index_col=0,parse_dates=True)
-    hfi.index = hfi.index.to_period('M')
+    hfi.index = hfi.index.to_period('m')
     
     hfi /= 100
 
@@ -64,7 +64,7 @@ def get_ind_returns():
     """
     
     ind = pd.read_csv("data/ind30_m_vw_rets.csv",header=0,index_col=0,parse_dates=True)/100
-    ind.index = pd.to_datetime(ind.index, format = "%Y%M").to_period("M")
+    ind.index = pd.to_datetime(ind.index, format = "%Y%m").to_period("m")
     ind.columns = ind.columns.str.strip()
     
     return ind
@@ -131,6 +131,7 @@ def var_historic(r, level=5):
 def var_gaussian(r, level = 5, modified=False):
     """
     Returns the Parametric Gaussian VaR of a Series or DataFrame
+    Modified refers to Cornish-Fisher Adjustment
     """
     z = ss.norm.ppf(level/100)
 
@@ -299,10 +300,16 @@ def msr(riskfree_rate, er, cov):
                        bounds=bounds)  # can pass arg: options = {'disp':False}
     return results.x
     
-    
+def gmv(cov):
+    """
+    Returns the weights of the Global Minimum Vol portfolio
+    Given the covariance matrix
+    """
+    n = len(cov)
+    return msr(0, np.repeat(1,n), cov)
     
 
-def plot_ef(n_points, er, cov, show_cml = False, riskfree_rate = 0, linestyle = ".-"):
+def plot_ef(n_points, er, cov, show_cml=False, show_ew=False, show_gmv = False, riskfree_rate=0, linestyle=".-"):
     """
     Plots the N-asset efficient frontier
     """
@@ -316,17 +323,34 @@ def plot_ef(n_points, er, cov, show_cml = False, riskfree_rate = 0, linestyle = 
     ef = pd.DataFrame({"Returns": rets, "Volatility": vols})
 
     # plot
-    ax = ef.plot.line(x="Volatility", y="Returns", style = linestyle)
-    
+    ax = ef.plot.line(x="Volatility", y="Returns", style=linestyle)
+
+    if show_ew:
+        n = len(er)
+        w_ew = np.repeat(1/n, n)
+        r_ew = portfolio_returns(w_ew, er)
+        vol_ew = portfolio_vol(w_ew, cov)
+        
+        # Add EW portfolio
+        ax.plot([vol_ew],[r_ew], color = 'goldenrod', marker = 'o')
+        
+    if show_gmv:
+        w_gmv = gmv(cov)
+        r_gmv = portfolio_returns(w_gmv, er)
+        vol_gmv = portfolio_vol(w_gmv, cov)
+        
+        # Add EW portfolio
+        ax.plot([vol_gmv],[r_gmv], color = 'royalblue', marker = 'o')
+
     if show_cml:
-        ax.set_xlim(left = 0)
-        w_msr = msr(riskfree_rate,er,cov)
+        ax.set_xlim(left=0)
+        w_msr = msr(riskfree_rate, er, cov)
         r_msr = portfolio_returns(w_msr, er)
         vol_msr = portfolio_vol(w_msr, cov)
 
         # Add Capital Markets Line
         cml_x = [0, vol_msr]
-        cml_y = [riskfree_rate,r_msr]
-        ax.plot(cml_x, cml_y, color = 'green', marker = "o", linestyle = 'dashed')
-        
+        cml_y = [riskfree_rate, r_msr]
+        ax.plot(cml_x, cml_y, color='green', marker="o", linestyle='dashed')
+
     return ax
