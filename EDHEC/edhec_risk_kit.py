@@ -58,9 +58,34 @@ def get_hfi_returns():
 
     return hfi
 
+
+def get_ind_size():
+    """
+    Load Ken French 30 Industry sizes
+    """
+    
+    ind = pd.read_csv("data/ind30_m_size.csv",header=0,index_col=0,parse_dates=True)
+    ind.index = pd.to_datetime(ind.index, format = "%Y%m").to_period("m")
+    ind.columns = ind.columns.str.strip()
+    
+    return ind
+
+def get_ind_nfirms():
+    """
+    Load Ken French 30 Industry portfolio number of firms
+    """
+    
+    ind = pd.read_csv("data/ind30_m_nfirms.csv",header=0,index_col=0,parse_dates=True)
+    ind.index = pd.to_datetime(ind.index, format = "%Y%m").to_period("m")
+    ind.columns = ind.columns.str.strip()
+    
+    return ind
+
+
 def get_ind_returns():
     """
-    Load Ind 30 Returns
+    Load Ken French 30 Industry portfolios
+    Value weighted monthly returns
     """
     
     ind = pd.read_csv("data/ind30_m_vw_rets.csv",header=0,index_col=0,parse_dates=True)/100
@@ -68,6 +93,25 @@ def get_ind_returns():
     ind.columns = ind.columns.str.strip()
     
     return ind
+
+
+def get_total_market_index_returns():
+    """
+    Get total market index returns by calculating the:
+    number of firms in index, size of firms
+    market cap, equal market cap weights, then return * equal cap weights
+    """
+    
+    ind_returns = get_ind_returns()
+    ind_nfirms = get_ind_nfirms()
+    ind_size= get_ind_size()
+    ind_mktcap = ind_nfirms * ind_size
+    total_mktcap = ind_mktcap.sum(axis=1)
+    ind_capweight = ind_mktcap.divide(total_mktcap, axis = 0)
+    
+    
+    total_market_return = (ind_capweight * ind_returns).sum(axis=1)
+    return total_market_return
 
 
 def semideviation(r):
@@ -354,3 +398,100 @@ def plot_ef(n_points, er, cov, show_cml=False, show_ew=False, show_gmv = False, 
         ax.plot(cml_x, cml_y, color='green', marker="o", linestyle='dashed')
 
     return ax
+
+
+def run_cppi(risky_r, safe_r = None, m = 3, start = 1000, floor = 0.8, riskfree_rate = 0.01, drawdown = None):
+    """
+    Run a backtest of the CPPI strategy, given a set of returns for the risky asset
+    Return a dict containing: Asset Value History, Risk Budget History, Risk Weight History
+    """
+    dates = risky_r.index
+    n_steps = len(dates)
+    account_value = start
+    floor_value = start * floor
+    peak = start
+
+    if isinstance(risky_r, pd.Series):
+        risky_r = pd.DataFrame(risky_r, columns = ["R"])
+        
+    if safe_r is None:
+        safe_r = pd.DataFrame().reindex_like(risky_r)
+        safe_r.values[:] = riskfree_rate/12
+
+    # for backtesting:
+    account_history = pd.DataFrame().reindex_like(risky_r)
+    cushion_history = pd.DataFrame().reindex_like(risky_r)
+    risky_w_history = pd.DataFrame().reindex_like(risky_r)
+
+    for step in range(n_steps):
+        
+        if drawdown is not None:
+            peak = np.maximum(peak, account_value)
+            floor_value = peak * (1 - drawdown)
+
+        cushion = (account_value - floor_value)/account_value
+
+        risky_w = m * cushion    
+        risky_w = np.minimum(risky_w, 1)  # no leverage
+        risky_w = np.maximum(risky_w, 0)  # no shorting
+
+        safe_w = 1 - risky_w
+
+        risky_alloc = account_value*risky_w
+        safe_alloc = account_value*safe_w
+
+        # Update the account value for this time step
+        account_value = risky_alloc*(1 + risky_r.iloc[step]) + safe_alloc*(1 + safe_r.iloc[step])
+
+        # Save the values to plot and analyze
+        account_history.iloc[step] = account_value
+        cushion_history.iloc[step] = cushion
+        risky_w_history.iloc[step] = risky_w
+    
+    
+    risky_wealth = start * (1 + risky_r).cumprod()
+    
+    backtest_result = {
+        "Wealth":account_history,
+        "Risky Wealth": risky_wealth,
+        "Risk Budget": cushion_history,
+        "Risky Allocation":risky_w_history,
+        "m":m,
+        "start":start,
+        "floor":floor,
+        "risky_r":risky_r,
+        "safe_r":safe_r
+    }
+    
+    return backtest_result
+
+def summary_stats(r, riskfree_rate = 0.01):
+    """
+    Return a DataFrame that contains summary stats for the returns in the columns of r
+    """
+    
+    ann_r = r.aggregate(annualize_rets,periods_per_year = 12)
+    ann_vol = r.aggregate(annualize_vol,periods_per_year = 12)
+    ann_sr = r.aggregate(sharpe_ratio, riskfree_rate = riskfree_rate, periods_per_year = 12)
+    dd = r.aggregate(lambda r: drawdown(r).Drawdown.min())
+    skew = r.aggregate(skewness)
+    kurt = r.aggregate(kurtosis)
+    cf_var5 = r.aggregate(var_gaussian, modified = True)
+    hist_cvar5 = r.aggregate(cvar_historic)
+    
+    result = pd.DataFrame({
+        "Annualized Return": ann_r,
+        "Annualized Vol": ann_vol,
+        "Sharpe Ratio": ann_sr,
+        "Skewness": skew,
+        "Kurtosis":kurt,
+        "Cornish-Fisher VaR (5%)": cf_var5,
+        "Historic VaR (5%)": hist_cvar5,
+        "Max Drawdown": dd,
+    })
+    
+    return result
+    
+    
+        
+    
