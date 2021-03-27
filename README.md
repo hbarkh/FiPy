@@ -3,4 +3,4 @@ Fiancial decision making tools coded in python
 
 
 ## Implemented Models:
-### Markowitz Model w/CML
+### &#x2611; Markowitz Model w/CML
