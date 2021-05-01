@@ -513,5 +513,39 @@ def gbm(n_years = 10, n_scenarios=1000, mu=0.07, sigma=0.15, steps_per_year=12, 
     rets_plus_1[0] = 1
     ret_val = s_0*pd.DataFrame(rets_plus_1).cumprod() if prices else rets_plus_1-1
     return ret_val
-        
-    
+       
+
+def discount(t,r):
+    """
+    :param t: time
+    :param r: interest rate
+    :return: (1+r)^(-t)
+    """
+
+    return (1+r)**(-t)
+
+def pv(l,r):
+    """
+    Computes the present value of a sequence of liabilities
+    :param l: is indexed by the time, and the values are the amounts of each liability
+    :param r: interest rate
+    :return: the present value of the sequence
+    """
+    dates = l.index
+    discounts =discount(dates,r)
+
+    return np.dot(discounts,l)
+
+def funding_ratio(assets, liabilities, r):
+    """
+    Computes the funding ratio of some assets given liabilities and interest rates
+    :param assets: scalar of total assets value today
+    :param liabilities: series
+    :param r: interest rate
+    :return: assets/pv(liabilities,r)
+    """
+    return assets/pv(liabilities,r)
+
+
+
+
